@@ -2,7 +2,8 @@ import os
 import pandas as pd
 from datetime import datetime
 from playwright.sync_api import sync_playwright
-from playwright_stealth import stealth_sync
+# 임포트 방식을 변경하여 에러를 방지합니다.
+import playwright_stealth
 
 def run_crawling():
     url = "https://www.kobis.or.kr/kobis/business/stat/boxs/findRealTicketList.do"
@@ -10,22 +11,21 @@ def run_crawling():
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     with sync_playwright() as p:
-        # 1. 브라우저 실행 및 스텔스 설정 (봇 차단 방지)
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(viewport={'width': 1920, 'height': 1080})
         page = context.new_page()
-        stealth_sync(page) # 자동화 도구임을 숨김
+        
+        # stealth_sync 대신 직접 호출 방식을 사용합니다.
+        playwright_stealth.stealth_sync(page)
         
         print(f"상세 통계 페이지 접속 시도: {url}")
         page.goto(url, wait_until="networkidle")
 
-        # 2. 통계 표가 프레임 내부에 있는지 확인하고 접근합니다.
-        # KOBIS 통계는 보통 'contentFrame'이나 특정 iframe 안에 들어있습니다.
         try:
-            # 모든 프레임을 뒤져서 '.tbl_type02' 표가 있는 곳을 찾습니다.
-            print("테이블 로딩 대기 중 (프레임 탐색)...")
-            page.wait_for_timeout(5000) # 데이터 로딩을 위한 기초 대기
+            # KOBIS 페이지의 특성상 로딩 시간이 필요하므로 5초간 대기합니다.
+            page.wait_for_timeout(5000)
             
+            # 모든 프레임을 탐색하여 표 데이터를 찾습니다.
             target_frame = None
             for frame in page.frames:
                 if frame.query_selector(".tbl_type02"):
@@ -33,13 +33,12 @@ def run_crawling():
                     break
             
             if not target_frame:
-                # 메인 페이지에 직접 있는 경우
                 if page.query_selector(".tbl_type02"):
                     target_frame = page
                 else:
-                    raise Exception("테이블이 포함된 프레임을 찾을 수 없습니다.")
+                    raise Exception("데이터 테이블(tbl_type02)을 찾을 수 없습니다.")
 
-            # 3. 데이터 추출 (행 단위)
+            # 데이터 행(tr) 수집
             rows = target_frame.query_selector_all(".tbl_type02 tbody tr")
             print(f"데이터 행 발견: {len(rows)}개")
             
@@ -47,7 +46,7 @@ def run_crawling():
             for row in rows:
                 cols = row.query_selector_all("td")
                 if len(cols) >= 4:
-                    # 이미지 기준: 2번 열(영화명), 4번 열(예매율)
+                    # 2번 열: 영화명, 4번 열: 예매율
                     title = cols[1].inner_text().strip()
                     rate = cols[3].inner_text().replace('%', '').strip()
                     if title and rate:
@@ -57,13 +56,11 @@ def run_crawling():
         except Exception as e:
             print(f"오류 발생: {e}")
             page.screenshot(path="debug_screenshot.png")
-            print("원인 파악을 위해 스크린샷을 저장했습니다.")
             browser.close()
             return
 
         browser.close()
 
-        # 4. CSV 저장
         if movie_list:
             df = pd.DataFrame(movie_list, columns=['check_time', 'title', 'rate'])
             if os.path.exists(filename):
