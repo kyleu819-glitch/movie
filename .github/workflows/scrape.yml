@@ -39,6 +39,14 @@ jobs:
       - name: Run Scraper
         run: python scraper.py
 
+        # (Run Scraper 단계 바로 뒤에 추가)
+      - name: Upload Screenshot on Failure
+        if: failure() || always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: debug-screenshot
+          path: debug_screenshot.png
+
       # 6. 생성된 CSV 파일을 리포지토리에 반영 (Commit & Push)
       - name: Commit and Push changes
         run: |
