@@ -9,38 +9,57 @@ def run_crawling():
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     with sync_playwright() as p:
-        # 브라우저 실행
+        # 1. 사람처럼 보이도록 브라우저 설정 강화
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            viewport={'width': 1280, 'height': 800}
+        )
+        page = context.new_page()
         
-        print(f"브라우저로 접속 중: {url}")
-        page.goto(url, wait_until="networkidle") # 네트워크가 조용해질 때까지 대기
-
-        # 예매율 데이터가 있는 셀렉터가 나타날 때까지 명시적으로 기다림 (최대 10초)
+        print(f"브라우저 접속 시도: {url}")
         try:
-            page.wait_for_selector(".main_real_ranking", timeout=10000)
-        except:
-            print("데이터 로딩 시간이 초과되었습니다.")
+            # 접속 시 대기 시간을 30초로 넉넉히 설정
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            
+            # 2. 데이터가 나타날 때까지 최대 20초간 대기 (여러 후보 셀렉터 확인)
+            print("데이터 로딩 대기 중...")
+            page.wait_for_timeout(5000) # 일단 5초간 무조건 대기 (안정성)
+            
+            # 실시간 예매율 순위 영역이 나타나는지 확인
+            target_selector = ".main_real_ranking"
+            page.wait_for_selector(target_selector, timeout=20000)
+            
+        except Exception as e:
+            print(f"로딩 실패 또는 타임아웃: {e}")
+            # [핵심] 실패 원인을 알기 위해 현재 화면을 스크린샷으로 저장합니다.
+            page.screenshot(path="debug_screenshot.png")
+            print("디버깅용 스크린샷을 저장했습니다 (debug_screenshot.png)")
             browser.close()
             return
 
-        # 화면에 보이는 영화 아이템들을 수집
-        items = page.query_selector_all(".main_real_ranking li")
+        # 3. 데이터 추출
+        items = page.query_selector_all(f"{target_selector} li")
+        print(f"찾은 항목 개수: {len(items)}")
         
         movie_list = []
         for item in items:
-            title_el = item.query_selector("strong")
-            rate_el = item.query_selector(".rate")
-            
-            if title_el and rate_el:
-                title = title_el.inner_text().strip()
-                rate = rate_el.inner_text().replace('예매율', '').replace('%', '').strip()
-                if title:
-                    movie_list.append([current_time, title, rate])
-                    print(f"수집 성공: {title} ({rate}%)")
+            try:
+                title_el = item.query_selector("strong")
+                rate_el = item.query_selector(".rate")
+                
+                if title_el and rate_el:
+                    title = title_el.inner_text().strip()
+                    rate = rate_text = rate_el.inner_text().replace('예매율', '').replace('%', '').strip()
+                    if title:
+                        movie_list.append([current_time, title, rate])
+                        print(f"수집 성공: {title} ({rate}%)")
+            except:
+                continue
 
         browser.close()
 
+        # 4. 저장 로직
         if movie_list:
             df = pd.DataFrame(movie_list, columns=['check_time', 'title', 'rate'])
             if os.path.exists(filename):
