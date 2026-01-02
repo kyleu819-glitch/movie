@@ -1,16 +1,50 @@
-steps:
+name: KOBIS Real-time Scraper (Playwright)
+
+on:
+  schedule:
+    # 3시간마다 자동으로 실행 (UTC 기준 0시, 3시, 6시...)
+    - cron: '0 */3 * * *'
+  workflow_dispatch: # Actions 탭에서 수동으로 실행 가능하게 함
+
+permissions:
+  contents: write # 수집한 데이터를 리포지토리에 저장하기 위한 필수 권한
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 소스 코드 체크아웃
       - name: Checkout code
         uses: actions/checkout@v3
 
+      # 2. 파이썬 환경 설정
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
+      # 3. 필요한 라이브러리 설치 (pandas, playwright 등)
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          playwright install chromium # 크롬 브라우저 설치 추가
 
+      # 4. Playwright 전용 브라우저(Chromium) 설치
+      # 이 단계가 있어야 GitHub 서버에서 브라우저가 실행됩니다.
+      - name: Install Playwright Browsers
+        run: |
+          playwright install chromium
+
+      # 5. 수집 스크립트 실행
       - name: Run Scraper
         run: python scraper.py
+
+      # 6. 생성된 CSV 파일을 리포지토리에 반영 (Commit & Push)
+      - name: Commit and Push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add kobis_reservation_data.csv
+          # 변경사항이 있을 때만 커밋 (데이터가 동일하면 건너뜀)
+          git commit -m "Auto-update KOBIS data: $(date +'%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
+          git push
