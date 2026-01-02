@@ -4,71 +4,71 @@ import pandas as pd
 from datetime import datetime
 import os
 
-def collect_kobis_public():
-    # 404가 발생하지 않는 공식 메인 페이지 주소입니다.
-    url = "https://www.kobis.or.kr/kobis/main/main.do"
+def collect_kobis_survivor():
+    # 시도할 후보 URL들 (KOBIS의 다양한 경로)
+    urls = [
+        "https://www.kobis.or.kr/kobis/business/main/main.do", # 비즈니스 메인 (가장 유력)
+        "https://www.kobis.or.kr/kobis/business/stat/boxs/findRealTicketList.do", # 통계 상세
+        "https://www.kobis.or.kr/main.do" # 일반 메인
+    ]
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7'
     }
-    
-    print(f"KOBIS 공식 메인 페이지 접속 중: {url}")
-    
-    try:
-        res = requests.get(url, headers=headers)
-        res.encoding = 'utf-8'
-        
-        if res.status_code != 200:
-            print(f"접속 실패! (에러 코드: {res.status_code})")
-            return
 
-        soup = BeautifulSoup(res.text, 'html.parser')
-        
-        movie_list = []
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    movie_list = []
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-        # 메인 페이지의 '실시간 예매율' 리스트 영역을 찾습니다.
-        # 보통 .ov-all 클래스 하위의 li 태그에 영화 정보가 들어있습니다.
-        items = soup.select('.ov-all li')
-        
-        print(f"페이지 분석 중... 찾은 아이템 개수: {len(items)}")
-
-        for item in items:
-            try:
-                # 영화 제목 (strong.tit 태그)
-                title_tag = item.select_one('.tit') or item.select_one('strong')
-                # 예매율 (span.rate 태그)
-                rate_tag = item.select_one('.rate') or item.select_one('span')
+    for url in urls:
+        print(f"\n[진단] 접속 시도 중: {url}")
+        try:
+            res = requests.get(url, headers=headers, timeout=10)
+            print(f"[결과] 상태 코드: {res.status_code}")
+            
+            if res.status_code == 200:
+                soup = BeautifulSoup(res.text, 'html.parser')
+                # 1. 비즈니스 메인/상세 페이지의 '순위 리스트' 태그 찾기
+                items = soup.select('.main_real_ranking li') or soup.select('.sector_rank .item') or soup.select('table tbody tr')
                 
-                if title_tag and rate_tag:
-                    title = title_tag.text.strip()
-                    # "예매율 25.4%" 에서 숫자와 소수점만 추출
-                    rate_text = rate_tag.text.strip()
-                    rate = "".join(filter(lambda x: x.isdigit() or x == '.', rate_text))
+                print(f"[분석] 찾은 데이터 항목: {len(items)}개")
+                
+                if len(items) > 1: # 헤더 외에 데이터가 있다면
+                    for item in items:
+                        try:
+                            # 다양한 태그 패턴 대응 (태그가 바뀔 수 있으므로 여러 후보군 설정)
+                            title_tag = item.select_one('strong') or item.select_one('.tit') or item.select_one('td.tal')
+                            rate_tag = item.select_one('.rate') or item.select_one('span') or item.select_one('td:nth-child(6)')
+                            
+                            if title_tag and rate_tag:
+                                title = title_tag.text.strip()
+                                rate = "".join(filter(lambda x: x.isdigit() or x == '.', rate_tag.text))
+                                if title and rate:
+                                    movie_list.append([current_time, title, rate])
+                        except:
+                            continue
                     
-                    if title and rate:
-                        movie_list.append([current_time, title, rate])
-                        print(f"수집 성공: {title} ({rate}%)")
-            except:
+                    if movie_list:
+                        print(f"✅ 수집 성공! ({len(movie_list)}건)")
+                        break # 하나라도 성공하면 루프 중단
+            else:
                 continue
+        except Exception as e:
+            print(f"[오류] {url} 접속 중 문제 발생: {e}")
 
-        if not movie_list:
-            print("데이터를 찾을 수 없습니다. 선택자(Selector)를 재점검합니다.")
-            return
+    if not movie_list:
+        print("\n❌ 모든 경로에서 수집 실패. 서버가 자동화 접속을 차단 중일 수 있습니다.")
+        return
 
-        # CSV 저장 로직
-        df = pd.DataFrame(movie_list, columns=['check_time', 'title', 'rate'])
-        filename = 'kobis_reservation_data.csv'
-        
-        if os.path.exists(filename):
-            df_old = pd.read_csv(filename, encoding='utf-8-sig')
-            df = pd.concat([df_old, df], ignore_index=True)
-        
-        df.to_csv(filename, index=False, encoding='utf-8-sig')
-        print(f"[{current_time}] 총 {len(movie_list)}건 저장 완료!")
-
-    except Exception as e:
-        print(f"오류 발생: {e}")
+    # 데이터 저장
+    df = pd.DataFrame(movie_list, columns=['check_time', 'title', 'rate'])
+    filename = 'kobis_reservation_data.csv'
+    if os.path.exists(filename):
+        df_old = pd.read_csv(filename, encoding='utf-8-sig')
+        df = pd.concat([df_old, df], ignore_index=True)
+    df.to_csv(filename, index=False, encoding='utf-8-sig')
+    print(f"\n데이터가 {filename}에 최종 저장되었습니다.")
 
 if __name__ == "__main__":
-    collect_kobis_public()
+    collect_kobis_survivor()
