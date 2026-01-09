@@ -19,7 +19,7 @@ def run_crawling():
         playwright_stealth.stealth_sync(page)
         
         print(f"상세 통계 페이지 접속 시도: {url}")
-        page.goto(url, wait_until="networkidle")
+        # page.goto(url, wait_until="networkidle")
 
         try:
             # KOBIS 페이지의 특성상 로딩 시간이 필요하므로 5초간 대기합니다.
