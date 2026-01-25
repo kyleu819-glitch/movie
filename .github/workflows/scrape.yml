@@ -1,9 +1,9 @@
 name: KOBIS Real-time Scraper (Playwright)
 
 on:
-  schedule:
+  #schedule:
     # 3시간마다 자동으로 실행 (UTC 기준 0시, 3시, 6시...)
-    - cron: '0 */3 * * *'
+  #  - cron: '0 */3 * * *'
   workflow_dispatch: # Actions 탭에서 수동으로 실행 가능하게 함
 
 permissions:
